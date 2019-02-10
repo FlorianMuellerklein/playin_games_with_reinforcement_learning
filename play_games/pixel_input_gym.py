@@ -121,7 +121,7 @@ def main():
                 with torch.no_grad():
                     p_, h = a2c.policy.sample_action_probs(s.to(device), 
                                                                h.to(device))
-                    if torch.isnan(p_).any(): break
+                    if torch.isnan(p_).any(): restart = True; break
                     a = p_.multinomial(num_samples=1).data
 
                 s_, r, d, _ = env.step(a.item())
