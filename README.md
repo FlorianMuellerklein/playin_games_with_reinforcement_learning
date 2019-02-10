@@ -31,3 +31,7 @@ Train with PPO and different number of ppo epochs
 ```
 python vector_input_gym.py --env_name Pong-ram-v0 --eval_algo ppo --ppo_epochs 5
 ```
+
+## Installation
+
+Get [pytorch](https://pytorch.org/) and [openai gym](https://gym.openai.com/)

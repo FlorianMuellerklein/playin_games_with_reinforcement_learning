@@ -23,7 +23,7 @@ parser.add_argument('--num_steps', type=int, default=8,
                     help='number of steps before reflecting on your life')
 parser.add_argument('--ppo_epochs', type=int, default=4,
                     help='number of epochs for ppo updates')
-parser.add_argument('--lr', type=float, default=7e-4,
+parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate for adam')
 parser.add_argument('--gamma', type=float, default=0.95,
                     help='discount factor (default: 0.99)')
