@@ -4,7 +4,7 @@ I purchased the new edition of the [Sutton and Barto Reinforcement Learning book
 
 This repo implements Actor-Critic (A2C) and [PPO](https://arxiv.org/pdf/1707.06347.pdf) for openai gym environments. The environments either pass the screen image or a vector as input so there are two variants of training code to handle the two input types. 
 
-To train on an environment use the `env_name` flag and enter the name of the openai gym environment that you'd like to play. By default `lunar lander` is chosen. Training is done from the `play_games` folder. 
+To train on an environment use the `env_name` flag and enter the name of the openai gym environment that you'd like to play. By default `LunarLander-v2` is chosen for vector inputs, and `Pong-v0` for pixel inputs. Training is done from the `play_games` folder. 
 
 ## Training on pixel input 
 
