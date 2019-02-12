@@ -1,3 +1,4 @@
+import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,11 +7,20 @@ class PPO(object):
     '''Proximal Policy Optimization'''
     def __init__(self, policy, optimizer, gamma, device, lr, epochs=4, clip=0.2):
         self.policy = policy
+        self.old_policy = copy.deepcopy(policy)
         self.optimizer = optimizer(self.policy.parameters(), lr=lr)
         self.gamma = gamma
         self.device = device
         self.epochs = epochs
         self.clip = clip
+        self.value_coef = 0.5
+        self.entropy_coef = 0.01
+        self.actor_losses = []
+        self.critic_losses = []
+        self.entropy = []
+
+        # initialize old policy to be same as main for first epoch
+        self.old_policy.load_state_dict(self.policy.state_dict())
 
     def update(self, states, hiddens, actions, rewards, dones):
         # get discounted rewards
@@ -24,63 +34,70 @@ class PPO(object):
         for e in range(self.epochs):
 
             # get probs, value preds and log probs
-            action_probs, value_preds, h_ = self.policy(states.to(self.device), 
-                                                        hiddens.to(self.device))
-            action_log_probs = action_probs.log().gather(1, actions)
-
-            if e == 0:
-                old_log_probs = action_log_probs
+            action_probs, value_preds = self.policy(states.to(self.device))
+            action_log_probs = action_probs.log_prob(actions)
+            
+            # get the old probs
+            with torch.no_grad():
+                old_action_probs, _ = self.old_policy(states.to(self.device))
+                old_log_probs = old_action_probs.log_prob(actions)
 
             # get entropy
-            entropy = (action_probs * action_probs.log()).sum(1)
+            entropy = action_probs.entropy()
 
             # get advantage
-            advantage = (discounted_rewards - value_preds)
+            advantage = (discounted_rewards - value_preds.detach())
 
             # do the policy loss
-            ratio = (action_log_probs - old_log_probs.detach()).exp()
-            pg = ratio * advantage.detach()
-            clipped = torch.clamp(ratio, 1. - self.clip, 1. + self.clip) * advantage.detach()
+            ratio = (action_log_probs - old_log_probs).exp()
+            pg = ratio * advantage
+            clipped = torch.clamp(ratio, 1. - self.clip, 1. + self.clip) * advantage
             actor_loss = -torch.min(pg, clipped).mean()
             # do the value loss
-            value_loss = F.mse_loss(discounted_rewards, value_preds)
+            value_loss = F.mse_loss(value_preds, discounted_rewards)
             # combine into total loss
-            total_loss = 0.5 * value_loss + actor_loss - 0.0001 * entropy.mean()
+            total_loss = (actor_loss + self.value_coef * value_loss - 
+                          self.entropy_coef * entropy.mean())
+
+            self.actor_losses.append(actor_loss.item())
+            self.critic_losses.append(value_loss.item())
+            self.entropy.append(entropy.mean().item())
 
             self.optimizer.zero_grad()
             total_loss.backward()
             nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
             self.optimizer.step()
 
-    def discount_rewards(self, states, hiddens, rewards, dones):
+        self.old_policy.load_state_dict(self.policy.state_dict())
+
+    def discount_rewards(self, states, rewards, dones):
         # get discounted rewards
         rewards.reverse()
         discounted_rewards = []
         
-        # at terminal state
-        if dones[-1] == True:
-            next_return = 0
-        else:
+        ## at terminal state
+        #if dones[-1] == True:
+        #    next_return = 0
+        #else:
             # the last return is our estimate (according to deepmind preso RL6: @ 1:16)
-            with torch.no_grad():
-                next_return, _ = self.policy.sample_value(states[-1].to(self.device), 
-                                                          hiddens[-1].to(self.device))
+        #    with torch.no_grad():
+        #        next_return = self.policy.sample_value(states[-1].to(self.device))
         
         # put predicted value in reward
-        discounted_rewards.append(next_return)
-        dones.reverse()
-
-        for r in range(1, len(rewards)):
-            if not dones[r]:
-                current_return = rewards[r] + next_return * self.gamma
-            else:
-                current_return = 0
-            discounted_rewards.append(current_return)
+        #discounted_rewards.append(next_return)
+        #dones.reverse()
+        R = 0
+        for r in range(0, len(rewards)):
+            #if not dones[r]:
+            R = rewards[r] + R * self.gamma
+            #else:
+            #    current_return = 0
+            discounted_rewards.append(R)
         
         # put back in original order
         discounted_rewards.reverse()
         # convert to tensor
         discounted_rewards = torch.tensor(discounted_rewards).to(self.device).unsqueeze(1)
-        discounted_rewards = (discounted_rewards - discounted_rewards.mean()) / (discounted_rewards.std() + 1e-5)
+        #discounted_rewards = (discounted_rewards - discounted_rewards.mean()) / (discounted_rewards.std() + 1e-5)
 
-        return discounted_rewards.float().detach()
+        return discounted_rewards.float()

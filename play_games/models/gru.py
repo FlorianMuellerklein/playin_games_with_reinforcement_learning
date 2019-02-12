@@ -3,11 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class GRUPolicy(nn.Module):
-    def __init__(self, input_dims, n_actions):
+    def __init__(self, input_dims, n_actions, , rnn_size):
         super(GRUPolicy, self).__init__()
-        self.gru = nn.GRUCell(input_dims, 64)
-        self.action = nn.Linear(64, n_actions)
-        self.value = nn.Linear(64, 1)
+        self.gru = nn.GRUCell(input_dims, rnn_size)
+        self.action = nn.Linear(rnn_size, n_actions)
+        self.value = nn.Linear(rnn_size, 1)
 
     def forward(self, x, h):
         h = self.gru(x, h)
