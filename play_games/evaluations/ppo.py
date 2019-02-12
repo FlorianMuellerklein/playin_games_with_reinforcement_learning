@@ -22,9 +22,9 @@ class PPO(object):
         # initialize old policy to be same as main for first epoch
         self.old_policy.load_state_dict(self.policy.state_dict())
 
-    def update(self, states, hiddens, actions, rewards, dones):
+    def update(self, states, actions, values, rewards, dones):
         # get discounted rewards
-        discounted_rewards = self.discount_rewards(states, hiddens, rewards, dones)
+        discounted_rewards = self.discount_rewards(states, values, rewards, dones)
 
         # concate lists
         states = torch.cat(states)
@@ -70,30 +70,29 @@ class PPO(object):
 
         self.old_policy.load_state_dict(self.policy.state_dict())
 
-    def discount_rewards(self, states, rewards, dones):
+    def discount_rewards(self, states, values, rewards, dones):
         # get discounted rewards
         rewards.reverse()
         discounted_rewards = []
         
         ## at terminal state
-        #if dones[-1] == True:
-        #    next_return = 0
-        #else:
-            # the last return is our estimate (according to deepmind preso RL6: @ 1:16)
-        #    with torch.no_grad():
-        #        next_return = self.policy.sample_value(states[-1].to(self.device))
+        if dones[-1] == True:
+            next_return = 0
+        else:
+            # instead of starting at 0 we bootstrap with value prediction
+            next_return = values[-1]
         
         # put predicted value in reward
-        #discounted_rewards.append(next_return)
-        #dones.reverse()
-        R = 0
-        for r in range(0, len(rewards)):
-            #if not dones[r]:
-            R = rewards[r] + R * self.gamma
-            #else:
-            #    current_return = 0
-            discounted_rewards.append(R)
-        
+        discounted_rewards.append(next_return)
+        dones.reverse()
+        for r in range(1, len(rewards)):
+            if not dones[r]:
+                current_return = rewards[r] + next_return * self.gamma
+            else:
+                current_return = 0
+            discounted_rewards.append(current_return)
+            next_return = current_return
+
         # put back in original order
         discounted_rewards.reverse()
         # convert to tensor

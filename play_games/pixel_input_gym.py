@@ -107,7 +107,7 @@ def main():
         restart = True
         while ep_idx < args.num_episode:
             
-            states, hiddens, actions, rewards, dones = [], [], [], [], []
+            states, actions, values, rewards, dones = [], [], [], [], []
 
             if restart:
                 reward_sum = 0.
@@ -121,7 +121,7 @@ def main():
                 s = state_proc(s)
 
                 with torch.no_grad():
-                    p_ = update_algo.policy.sample_action_probs(s.to(device))
+                    p_, v_ = update_algo.policy(s.to(device))
                     if torch.isnan(p_).any(): restart = True; break
                     a = p_.multinomial(num_samples=1).data
 
@@ -131,8 +131,8 @@ def main():
                 restart = d if args.num_envs == 1 else d.any()
 
                 states.append(s)
-                hiddens.append(h)
                 actions.append(a)
+                values.append(v_)
                 rewards.append(r)
                 dones.append(d)
 
@@ -157,7 +157,7 @@ def main():
                     s = s_
 
             if len(dones) > 1:
-                update_algo.update(states, actions, rewards, dones)
+                update_algo.update(states, actions, values, rewards, dones)
 
     except KeyboardInterrupt:
         pass

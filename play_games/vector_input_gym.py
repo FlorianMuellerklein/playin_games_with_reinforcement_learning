@@ -120,6 +120,7 @@ def main():
 
                 states.append(s)
                 actions.append(a)
+                values.append(v_)
                 rewards.append(r)
                 dones.append(d)
 
@@ -143,7 +144,7 @@ def main():
                     s = s_
 
             if len(dones) > 1:
-                update_algo.update(states, actions, rewards, dones)
+                update_algo.update(states, actions, values, rewards, dones)
 
     except KeyboardInterrupt:
         pass
