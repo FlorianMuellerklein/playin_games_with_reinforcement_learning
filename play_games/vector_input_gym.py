@@ -17,21 +17,23 @@ from models.mlp import MLPolicy
 
 global args
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
-parser.add_argument('--num_episode', type=int, default=1000000,
+parser.add_argument('--num_episode', type=int, default=100000,
                     help='number of total game episodes')
 parser.add_argument('--num_steps', type=int, default=16,
                     help='number of steps before reflecting on your life')
 parser.add_argument('--ppo_epochs', type=int, default=4,
                     help='number of epochs for ppo updates')
-parser.add_argument('--lr', type=float, default=1e-4,
+parser.add_argument('--lr', type=float, default=7e-4,
                     help='learning rate for adam')
 parser.add_argument('--hid_size', type=int, default=256,
                     help='number of units in the rnn')
 parser.add_argument('--gamma', type=float, default=0.95,
                     help='discount factor (default: 0.99)')
-parser.add_argument('--clip', type=float, default=0.1,
+parser.add_argument('--entropy', type=float, default=0.0001,
+                    help='coefficient for entropy')
+parser.add_argument('--clip', type=float, default=0.2,
                     help='clip epsilon (default: 0.2)')
-parser.add_argument('--num_envs', type=int, default=2,
+parser.add_argument('--num_envs', type=int, default=4,
                     help='number of parallel games')
 parser.add_argument('--seed', type=int, default=543,
                     help='random seed (default: 543)')
@@ -95,6 +97,7 @@ else:
                       lr=args.lr)
 
 end_rewards = []
+gt = 0
 def main():
     try:
         print('starting episodes') 
@@ -118,7 +121,8 @@ def main():
                 reward_sum += r.mean() if args.num_envs > 1 else r
 
                 update_algo.rollouts.insert(t, lp_, e, v_, r, d, 
-                                            a if args.algo == 'ppo' else None)
+                                            a if args.algo == 'ppo' else None,
+                                            s if args.algo == 'ppo' else None)
 
                 if args.render:
                     if args.num_envs == 1:
@@ -139,28 +143,33 @@ def main():
             s_ = torch.from_numpy(s_).float() if args.num_envs > 1 else torch.from_numpy(s_).float().unsqueeze(0)
             with torch.no_grad():
                 _, next_val = update_algo.policy(s_.to(device))
-            update_algo.update(next_val)
 
+            update_algo.update(next_val)
             update_algo.rollouts.reset()
+
+            for params in update_algo.optimizer.param_groups:
+                params['lr'] *= (1. - (ep_idx / args.num_episode))
 
     except KeyboardInterrupt:
         pass
 
     torch.save(update_algo.policy.state_dict(), 
-               '../model_weights/{}_mlp.pth'.format(args.env_name))
+               '../model_weights/{}_{}_mlp.pth'.format(args.env_name,
+                                                       args.algo))
 
     import pandas as pd
 
     out_dict = {'avg_end_rewards': end_rewards}
     out_log = pd.DataFrame(out_dict)
-    out_log.to_csv('../logs/policy_rewards.csv', index=False)
+    out_log.to_csv('../logs/{}_{}_policy_rewards.csv'.format(args.env_name,
+                                                             args.algo), index=False)
 
     out_dict = {'actor losses': update_algo.actor_losses,
                 'critic losses': update_algo.critic_losses,
                 'entropy': update_algo.entropy}
     out_log = pd.DataFrame(out_dict)
-    out_log.to_csv('../logs/{}_training_behavior.csv'.format(args.env_name), 
-                   index=False)
+    out_log.to_csv('../logs/{}_{}_training_behavior.csv'.format(args.env_name,
+                                                                args.algo), index=False)
 
     cv2.destroyAllWindows()
 

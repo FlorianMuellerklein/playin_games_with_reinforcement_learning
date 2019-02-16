@@ -1,3 +1,4 @@
+import time
 import argparse
 
 import gym
@@ -9,10 +10,11 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 
-from models.gru import GRUPolicy
+from models.mlp import MLPolicy
 
 device = torch.device('cpu')
 
+algo = 'a2c'
 env_name = "LunarLander-v2"
 env = gym.make(env_name)
 n_states = env.observation_space.shape
@@ -20,8 +22,9 @@ n_actions = env.action_space.n
 print('states:', n_states, 'actions:', n_actions)
 
 
-policy = GRUPolicy(n_states[0], n_actions).to(device)
-policy.load_state_dict(torch.load('../model_weights/{}_mlp.pth'.format(env_name),
+policy = MLPolicy(n_states[0], n_actions, hidden_sz=256).to(device)
+policy.load_state_dict(torch.load('../model_weights/{}_{}_mlp.pth'.format(env_name,
+                                                                          algo),
                                   map_location=lambda storage,
                                   loc: storage))
 
@@ -49,17 +52,13 @@ def main():
                 #state = state_proc(state)
                 
                 with torch.no_grad():
-                    probs, _, h = policy(torch.from_numpy(state).float().unsqueeze(0),
-                                        h)
-                print(probs)
-                _, action_idx = probs.max(-1)
-                action = action_idx.item()
-                print(action)
-                state, _, done, _ = env.step(action)
+                    probs, _ = policy(torch.from_numpy(state).float().unsqueeze(0))
+                action = probs.sample()
+                state, _, done, _ = env.step(action.item())
                 
                 env.render()
+                time.sleep(0.02)
 
-                print(done)
                 
                 #if done:
                 #    break

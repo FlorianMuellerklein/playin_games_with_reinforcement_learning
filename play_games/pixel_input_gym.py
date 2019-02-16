@@ -29,7 +29,7 @@ parser.add_argument('--rnn_size', type=int, default=256,
                     help='number of units in the rnn')
 parser.add_argument('--gamma', type=float, default=0.95,
                     help='discount factor (default: 0.99)')
-parser.add_argument('--clip', type=float, default=0.1,
+parser.add_argument('--clip', type=float, default=0.2,
                     help='clip epsilon (default: 0.2)')
 parser.add_argument('--num_envs', type=int, default=1,
                     help='number of parallel games')
