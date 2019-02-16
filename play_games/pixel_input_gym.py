@@ -19,11 +19,11 @@ import argparse
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
 parser.add_argument('--num_episode', type=int, default=1000000,
                     help='number of total game episodes')
-parser.add_argument('--num_steps', type=int, default=512,
+parser.add_argument('--num_steps', type=int, default=16,
                     help='number of steps before reflecting on your life')
 parser.add_argument('--ppo_epochs', type=int, default=4,
                     help='number of epochs for ppo updates')
-parser.add_argument('--lr', type=float, default=1e-3,
+parser.add_argument('--lr', type=float, default=1e-4,
                     help='learning rate for adam')
 parser.add_argument('--rnn_size', type=int, default=256,
                     help='number of units in the rnn')
@@ -37,9 +37,9 @@ parser.add_argument('--seed', type=int, default=543,
                     help='random seed (default: 543)')
 parser.add_argument('--log-interval', type=int, default=10,
                     help='interval between training status logs (default: 10)')
-parser.add_argument('--env_name', type=str, default='CrazyClimber-v0',
+parser.add_argument('--env_name', type=str, default='MsPacman-v0',
                     help='Which game to play')
-parser.add_argument('--eval_algo', type=str, default='a2c',
+parser.add_argument('--algo', type=str, default='a2c',
                     help='which rl algo to use for weight updates')
 parser.add_argument('--render', action='store_true',
                     help='render the environment')
@@ -70,7 +70,7 @@ n_actions = env.action_space.n
 print('state shape:', n_states, 'actions:', n_actions)
 
 
-if args.eval_algo == 'ppo':
+if args.algo == 'ppo':
     from evaluations.ppo import PPO
     update_algo = PPO(policy = ConvPolicy(n_actions).to(device), 
                       optimizer=optim.Adam, 
@@ -89,11 +89,11 @@ else:
 
 def state_proc(state):
     if args.num_envs == 1:
-        #state = state[::2, ::2]
+        state = state[::2, ::2]
         state = state.transpose((2,0,1)) / 255.
         state = torch.from_numpy(state).unsqueeze(0).float()
     else:
-        #state = state[:, ::2, ::2, :]
+        state = state[:, ::2, ::2, :]
         state = state.transpose((0,3,1,2)) / 255.
         state = torch.from_numpy(state).float()
     return state
@@ -122,8 +122,7 @@ def main():
 
                 with torch.no_grad():
                     p_, v_ = update_algo.policy(s.to(device))
-                    if torch.isnan(p_).any(): restart = True; break
-                    a = p_.multinomial(num_samples=1).data
+                    a = p_.sample()
 
                 s_, r, d, _ = env.step(a.item() if args.num_envs == 1 else a.cpu().numpy())
 
@@ -162,20 +161,24 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    torch.save(update_algo.policy.state_dict(), '../model_weights/{}_mlp.pth'.format(args.env_name))
+    torch.save(update_algo.policy.state_dict(), 
+               '../model_weights/{}_{}_conv.pth'.format(args.env_name,
+                                                        args.algo))
 
     import pandas as pd
 
     out_dict = {'avg_end_rewards': end_rewards}
     out_log = pd.DataFrame(out_dict)
-    out_log.to_csv('../logs/{}_rewards.csv'.format(args.env_name), 
+    out_log.to_csv('../logs/{}_{}_rewards.csv'.format(args.env_name,
+                                                      args.algo), 
                    index=False)
 
     out_dict = {'actor losses': update_algo.actor_losses,
                 'critic losses': update_algo.critic_losses,
                 'entropy': update_algo.entropy}
     out_log = pd.DataFrame(out_dict)
-    out_log.to_csv('../logs/{}_training_behavior.csv'.format(args.env_name), 
+    out_log.to_csv('../logs/{}_{}_training_behavior.csv'.format(args.env_name,
+                                                                args.algo), 
                    index=False)
 
     cv2.destroyAllWindows()
