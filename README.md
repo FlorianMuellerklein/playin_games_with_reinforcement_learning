@@ -38,12 +38,12 @@ Get [pytorch](https://pytorch.org/) and [openai gym](https://gym.openai.com/)
 
 ## References
 
-(David Silver Lectures)[https://www.youtube.com/playlist?list=PLqYmG7hTraZDM-OYHWgPebj2MfCFzFObQ]
+[David Silver Lectures](https://www.youtube.com/playlist?list=PLqYmG7hTraZDM-OYHWgPebj2MfCFzFObQ)
 
-(DeepMind Lectures)[https://www.youtube.com/playlist?list=PLqYmG7hTraZDNJre23vqCGIVpfZ_K2RZs]
+[DeepMind Lectures](https://www.youtube.com/playlist?list=PLqYmG7hTraZDNJre23vqCGIVpfZ_K2RZs)
 
-(Openai A2C blog)[https://blog.openai.com/baselines-acktr-a2c/#a2canda3c]
+[Openai A2C blog](https://blog.openai.com/baselines-acktr-a2c/#a2canda3c)
 
-(higgsfield rl-adventure-2)[https://github.com/higgsfield/RL-Adventure-2/blob/master/1.actor-critic.ipynb]
+[higgsfield rl-adventure-2](https://github.com/higgsfield/RL-Adventure-2/blob/master/1.actor-critic.ipynb)
 
-(Intuitive RL: Intro to Advantage-Actor-Critic (A2C))[https://hackernoon.com/intuitive-rl-intro-to-advantage-actor-critic-a2c-4ff545978752]
+[Intuitive RL: Intro to Advantage-Actor-Critic (A2C)](https://hackernoon.com/intuitive-rl-intro-to-advantage-actor-critic-a2c-4ff545978752)
