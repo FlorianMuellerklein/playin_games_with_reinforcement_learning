@@ -18,7 +18,6 @@ class A2C(ActorCriticStyle):
         discounted_rewards = self.discount_rewards(next_val, 
                                                    self.rollouts.rewards, 
                                                    self.rollouts.masks)
-
         # get advantage
         advantage = (discounted_rewards - values)
         

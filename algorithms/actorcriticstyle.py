@@ -10,7 +10,7 @@ class ActorCriticStyle:
 
     def __init__(self, policy, optimizer, num_steps, num_envs, entropy_coef,
                  state_size, gamma, device, epochs=4, clip=0.2):
-        self.rollouts = Rollouts(num_steps, num_envs, state_size)
+        self.rollouts = Rollouts(num_steps, num_envs)
         self.policy = policy
         self.optimizer = optimizer
         self.num_steps = num_steps
@@ -21,6 +21,7 @@ class ActorCriticStyle:
         self.ppo_clip = clip
         self.value_coef = 0.5
         self.entropy_coef = entropy_coef
+        self.state_size = state_size
         self.actor_losses = []
         self.critic_losses = []
         self.entropy = []
@@ -39,12 +40,10 @@ class Rollouts:
     '''
     Hold all of the info for training
     '''
-    def __init__(self, num_steps, num_envs, state_size=None):
+    def __init__(self, num_steps, num_envs):
         self.num_steps = num_steps
         self.num_envs = num_envs
-        self.state_size = state_size
-        if state_size is not None:
-            self.states = []
+        self.states = []
         self.actions = []
         self.log_probs = []
         self.values = []
@@ -65,8 +64,7 @@ class Rollouts:
         self.entropy += e.mean()
 
     def reset(self):
-        if self.state_size is not None:
-            self.states = []
+        self.states = []
         self.actions = []
         self.log_probs = []
         self.values = []

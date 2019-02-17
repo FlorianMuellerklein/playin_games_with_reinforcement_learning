@@ -17,7 +17,7 @@ from models.mlp import MLPolicy
 global args
 import argparse
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
-parser.add_argument('--num_episode', type=int, default=40000000,
+parser.add_argument('--num_episode', type=int, default=10000000,
                     help='number of total game episodes')
 parser.add_argument('--num_steps', type=int, default=32,
                     help='number of steps before reflecting on your life')
@@ -135,7 +135,7 @@ def main():
                 lp_ = p_.log_prob(a)
                 e = p_.entropy()
 
-                s_, r, d, _ = env.step(a.cpu().numpy())
+                s_, r, d, _ = env.step(a.cpu().numpy() if args.num_envs > 1 else a.item())
 
                 reward_sum += r.mean() if args.num_envs > 1 else r
 
@@ -143,8 +143,11 @@ def main():
                                             a if args.algo == 'ppo' else None,
                                             s if args.algo == 'ppo' else None)
 
-                s = s_
-                idx += 1
+                if (d if args.num_envs == 1 else d.any()):
+                    s = env.reset()
+                else:
+                    s = s_
+                    idx += 1
 
                 if idx % args.log_interval == 0:
                     test_rewards = np.mean([test() for _ in range(10)])
@@ -160,8 +163,8 @@ def main():
 
             if args.lr_decay:
                 for params in update_algo.optimizer.param_groups:
-                    params['lr'] = (lr_min + 0.5 * (args.lr - lr_min) *
-                                   (1 + np.cos(np.pi * t_ / args.num_steps)))
+                    params['lr'] = (0.0 + 0.5 * (args.lr - 0.0) *
+                                   (1 + np.cos(np.pi * idx / args.num_steps)))
 
     except KeyboardInterrupt:
         pass
@@ -183,8 +186,6 @@ def main():
     out_log = pd.DataFrame(out_dict)
     out_log.to_csv('../logs/{}_{}_training_behavior.csv'.format(args.env_name,
                                                                 args.algo), index=False)
-
-    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
