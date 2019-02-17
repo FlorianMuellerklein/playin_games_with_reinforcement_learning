@@ -19,8 +19,9 @@ optimizer = optim.Adam(policy.parameters(), lr=0.0003)
 update_algo = A2C(policy=policy, 
                   optimizer=optimizer)
 
-while idx < args.num_episode:
-    for t in range(args.num_steps):
+idx = 0
+while idx < 10: # play for 10 episodes
+    for t in range(8): # update every 8 time steps
         state = torch.from_numpy(state)
 
         dist, value = update_algo.policy(s.to(device))
@@ -33,6 +34,9 @@ while idx < args.num_episode:
         update_algo.rollouts.insert(logprob, entropy, value, reward, done)
 
         state = new_state
+
+        if done:
+            idx += 1
     
     next_val = torch.zeros(1,1)
     if not d:
