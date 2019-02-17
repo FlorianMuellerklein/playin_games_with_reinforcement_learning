@@ -10,7 +10,7 @@ The RL algorithms are designed to be modular, and agnostic to the training envir
 
 For example using A2C on an openai gym environment
 
-```
+```python
 from algorithms.a2c import A2C
 
 policy = ConvPolicy(n_actions)
