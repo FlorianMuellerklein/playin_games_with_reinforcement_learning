@@ -2,34 +2,43 @@
 
 I purchased the new edition of the [Sutton and Barto Reinforcement Learning book](http://incompleteideas.net/book/the-book-2nd.html) so I couldn't help myself. 
 
-This repo implements Actor-Critic (A2C) and [PPO](https://arxiv.org/pdf/1707.06347.pdf) for openai gym environments. The environments either pass the screen image or a vector as input so there are two variants of training code to handle the two input types. 
+This repo implements Synchronous Advantage Actor Critic (A2C) and [PPO](https://arxiv.org/pdf/1707.06347.pdf) for openai gym environments. The two algorithms contain classes to record the data collected from the environments and for updating the network weights. It's up to the user to write their own training loops. The package attemps to stay out of the way as much as possible, only be used to record data and update the models. 
 
-To train on an environment use the `env_name` flag and enter the name of the openai gym environment that you'd like to play. By default `LunarLander-v2` is chosen for vector inputs, and `Pong-v0` for pixel inputs. Training is done from the `play_games` folder. 
+## Algorithms
 
-## Training on pixel input 
+The RL algorithms are designed to be modular, and agnostic to the training environments. Each algorithm expects to have an actor-critic network and optimizer for that network. Training data is captured via the `Rollouts` class. The user chooses how many steps to capture data for before updating the network weights. 
 
-Train with A2C and default params.
-
-```
-python pixel_input_gym.py --env_name Pong-v0 
-```
-
-Train with PPO and different number of ppo epochs
-```
-python pixel_input_gym.py --env_name Pong-v0 --eval_algo ppo --ppo_epochs 5
-```
-
-## Training on vector input 
-
-Train with A2C and default params.
+For example using A2C on an openai gym environment
 
 ```
-python vector_input_gym.py --env_name Pong-ram-v0 
-```
+from algorithms.a2c import A2C
 
-Train with PPO and different number of ppo epochs
-```
-python vector_input_gym.py --env_name Pong-ram-v0 --eval_algo ppo --ppo_epochs 5
+policy = ConvPolicy(n_actions)
+optimizer = optim.Adam(policy.parameters(), lr=0.0003)
+
+update_algo = A2C(policy=policy, 
+                  optimizer=optimizer)
+
+while idx < args.num_episode:
+    for t in range(args.num_steps):
+        state = torch.from_numpy(state)
+
+        dist, value = update_algo.policy(s.to(device))
+        action = dist.sample()
+        logprob = dist.log_prob(action)
+        entropy = dist.entropy()
+
+        new_state, reward, done, _ = env.step(action.item())
+
+        update_algo.rollouts.insert(logprob, entropy, value, reward, done)
+
+        state = new_state
+    
+    next_val = torch.zeros(1,1)
+    if not d:
+        with torch.no_grad():
+            _, next_val = update_algo.policy(s.to(device))
+    update_algo.update(next_val))
 ```
 
 ## Installation
