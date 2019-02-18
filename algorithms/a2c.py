@@ -11,23 +11,24 @@ class A2C(ActorCriticStyle):
     '''Advantage actor critic'''
             
     def update(self, next_val):
-        log_probs = torch.cat(self.rollouts.log_probs)
-        values = torch.cat(self.rollouts.values)
+        log_probs = self.rollouts.log_probs.view(-1, 1).to(self.device)
+        values = self.rollouts.values.view(-1, 1).to(self.device)
     
         # get discounted rewards
-        discounted_rewards = self.discount_rewards(next_val, 
-                                                   self.rollouts.rewards, 
-                                                   self.rollouts.masks)
+        returns = self.discount_rewards(next_val, 
+                                        self.rollouts.rewards, 
+                                        self.rollouts.masks)
+
         # get advantage
-        advantage = (discounted_rewards - values)
+        advantage = (returns - values)
         
         # do the policy loss
         actor_loss = -(log_probs * advantage.detach()).mean()
         # do the value loss
-        value_loss = F.mse_loss(values, discounted_rewards.detach())
+        value_loss = F.mse_loss(values, returns.detach())
         # combine into total loss
         total_loss = (actor_loss + self.value_coef * value_loss - 
-                      self.entropy_coef * self.rollouts.entropy.to(self.device))
+                      self.entropy_coef * self.rollouts.entropy.item())
           
         self.actor_losses.append(actor_loss.item())
         self.critic_losses.append(value_loss.item())

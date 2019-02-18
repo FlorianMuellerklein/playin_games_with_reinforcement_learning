@@ -30,6 +30,10 @@ Train with PPO and different number of ppo epochs
 python vector_input_gym.py --eval_algo ppo --ppo_epochs 5
 ```
 
+## A2C Performance
+
+![lunarlander](plots/lunarlander_a2c.png)
+
 ## Installation
 
 Get [pytorch](https://pytorch.org/) and [openai gym](https://gym.openai.com/)

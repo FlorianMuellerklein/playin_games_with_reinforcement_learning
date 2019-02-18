@@ -17,7 +17,7 @@ from models.mlp import MLPolicy
 global args
 import argparse
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
-parser.add_argument('--num_episode', type=int, default=10000000,
+parser.add_argument('--num_episode', type=int, default=5000000,
                     help='number of total game episodes')
 parser.add_argument('--num_steps', type=int, default=32,
                     help='number of steps before reflecting on your life')
@@ -101,7 +101,7 @@ if args.algo == 'ppo':
                       num_steps=args.num_steps,
                       num_envs=args.num_envs,
                       state_size=n_states,
-                      entropy_coef=args.entropy,
+                      entropy_coef=0.01,
                       gamma=args.gamma, 
                       device=device,
                       epochs=args.ppo_epochs)
@@ -127,7 +127,7 @@ def main():
         while idx < args.num_episode:
             reward_sum = 0.
             # play a game
-            for t in range(args.num_steps):  # Don't infinite loop while learning
+            for t in range(args.num_steps):
                 s = torch.from_numpy(s).float() if args.num_envs > 1 else torch.from_numpy(s).float().unsqueeze(0)
 
                 p_, v_ = update_algo.policy(s.to(device))
@@ -139,7 +139,7 @@ def main():
 
                 reward_sum += r.mean() if args.num_envs > 1 else r
 
-                update_algo.rollouts.insert(lp_, e, v_, r, d, 
+                update_algo.rollouts.insert(t, lp_, e, v_, r, d, 
                                             a if args.algo == 'ppo' else None,
                                             s if args.algo == 'ppo' else None)
 
