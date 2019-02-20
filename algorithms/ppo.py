@@ -1,6 +1,8 @@
 import time
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,9 +14,9 @@ class PPO(ActorCriticStyle):
 
     def update(self, next_val):
         # concate lists
-        old_log_probs = self.rollouts.log_probs.view(-1, 1).to(self.device)
+        old_log_probs = self.rollouts.log_probs.view(-1).to(self.device).detach()
+        actions = self.rollouts.actions.view(-1).to(self.device).detach()
         states = self.rollouts.states.view(-1, *self.state_size)
-        actions = self.rollouts.actions.view(-1, 1).to(self.device)
 
         # get discounted rewards
         returns = self.discount_rewards(next_val, 
@@ -32,17 +34,18 @@ class PPO(ActorCriticStyle):
                 advantage = (returns[sl] - value_preds)
 
                 # do the policy loss
-                ratio = (action_log_probs - old_log_probs[sl].detach()).exp()
+                ratio = torch.exp(action_log_probs - old_log_probs[sl].detach())
                 # get regular policy grad and clipped ratio
-                pg = ratio * advantage.detach()
-                clipped = torch.clamp(ratio, 1. - self.ppo_clip, 
-                                    1. + self.ppo_clip) * advantage.detach()
-                actor_loss = - torch.min(pg, clipped).mean()
+                surr1 = ratio * advantage.detach()
+                surr2 = torch.clamp(ratio, 1. - self.ppo_clip, 
+                                           1. + self.ppo_clip) * advantage.detach()
+                actor_loss = - torch.min(surr1, surr2).mean()
                 # do the value loss
                 value_loss = F.mse_loss(value_preds, returns[sl].detach())
+
                 # combine into total loss
                 total_loss = (actor_loss + self.value_coef * value_loss - 
-                            self.entropy_coef * action_probs.entropy().mean())
+                              self.entropy_coef * action_probs.entropy().mean())
 
                 self.actor_losses.append(actor_loss.item())
                 self.critic_losses.append(value_loss.item())

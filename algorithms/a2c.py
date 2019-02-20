@@ -11,8 +11,8 @@ class A2C(ActorCriticStyle):
     '''Advantage actor critic'''
             
     def update(self, next_val):
-        log_probs = self.rollouts.log_probs.view(-1, 1).to(self.device)
-        values = self.rollouts.values.view(-1, 1).to(self.device)
+        log_probs = self.rollouts.log_probs.view(-1).to(self.device)
+        values = self.rollouts.values.view(-1).to(self.device)
     
         # get discounted rewards
         returns = self.discount_rewards(next_val, 
@@ -23,9 +23,10 @@ class A2C(ActorCriticStyle):
         advantage = (returns - values)
         
         # do the policy loss
-        actor_loss = -(log_probs * advantage.detach()).mean()
+        actor_loss = - (log_probs * advantage.detach()).mean()
         # do the value loss
         value_loss = F.mse_loss(values, returns.detach())
+
         # combine into total loss
         total_loss = (actor_loss + self.value_coef * value_loss - 
                       self.entropy_coef * self.rollouts.entropy.item())

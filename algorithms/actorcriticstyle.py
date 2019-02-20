@@ -9,7 +9,7 @@ class ActorCriticStyle:
     '''
 
     def __init__(self, policy, optimizer, num_steps, num_envs, entropy_coef,
-                 state_size, gamma, device, epochs=4, batch_size=64, clip=0.2):
+                 state_size, gamma, device, epochs=4, batch_size=16, clip=0.2):
         self.rollouts = Rollouts(num_steps, num_envs, state_size)
         self.policy = policy
         self.optimizer = optimizer
@@ -34,8 +34,7 @@ class ActorCriticStyle:
         return_idx = 0
         for step in reversed(range(len(rewards))):
             r = rewards[step].to(self.device) + r * self.gamma * masks[step].to(self.device)
-            returns[return_idx] = r
-            return_idx += 1
+            returns[step] = r
 
         return returns.view(-1, 1).to(self.device)
 
@@ -47,34 +46,34 @@ class Rollouts:
         self.state_size = state_size
         self.num_steps = num_steps
         self.num_envs = num_envs
-        self.states = torch.zeros((num_steps, num_envs, *state_size))
-        self.actions = torch.zeros((num_steps, num_envs, 1)).int()
-        self.log_probs = torch.zeros((num_steps, num_envs, 1)).float()
-        self.values = torch.zeros((num_steps, num_envs, 1)).float()
-        self.rewards = torch.zeros((num_steps, num_envs, 1)).float()
-        self.masks = torch.zeros((num_steps, num_envs, 1)).float()
-        self.entropy = torch.zeros((num_steps, num_envs, 1)).float()
+        self.states = torch.zeros((num_steps, num_envs, *state_size),)
+        self.actions = torch.zeros((num_steps, num_envs))
+        self.log_probs = torch.zeros((num_steps, num_envs))
+        self.values = torch.zeros((num_steps, num_envs))
+        self.rewards = torch.zeros((num_steps, num_envs))
+        self.masks = torch.zeros((num_steps, num_envs))
+        self.entropy = torch.zeros((num_steps, num_envs))
         self.entropy = 0.
 
 
     def insert(self, step, lp, e, v, r, d, a=None, s=None):
         if a is not None:
-            self.actions[step] = a.unsqueeze(1).int()
+            self.actions[step] = a.int()
         if s is not None:
-            self.states[step] = s.unsqueeze(0).float()
+            self.states[step] = s.float()
         self.values[step] = v
-        self.log_probs[step] = lp.unsqueeze(1).float()
-        self.rewards[step] = torch.from_numpy(r).unsqueeze(1).float()
-        self.masks[step] = torch.tensor(1. - d).unsqueeze(1).float()
+        self.log_probs[step] = lp.float()
+        self.rewards[step] = torch.from_numpy(r).float()
+        self.masks[step] = torch.tensor(1. - d).float()
         self.entropy += e.mean()
 
     def reset(self):
         self.states = torch.zeros((self.num_steps, self.num_envs, *self.state_size))
-        self.actions = torch.zeros((self.num_steps, self.num_envs, 1)).int()
-        self.log_probs = torch.zeros((self.num_steps, self.num_envs, 1)).float()
-        self.values = torch.zeros((self.num_steps, self.num_envs, 1)).float()
-        self.rewards = torch.zeros((self.num_steps, self.num_envs, 1)).float()
-        self.masks = torch.zeros((self.num_steps, self.num_envs, 1)).float()
-        self.entropy = torch.zeros((self.num_steps, self.num_envs, 1)).float()
+        self.actions = torch.zeros((self.num_steps, self.num_envs))
+        self.log_probs = torch.zeros((self.num_steps, self.num_envs))
+        self.values = torch.zeros((self.num_steps, self.num_envs))
+        self.rewards = torch.zeros((self.num_steps, self.num_envs))
+        self.masks = torch.zeros((self.num_steps, self.num_envs))
+        self.entropy = torch.zeros((self.num_steps, self.num_envs))
         self.entropy = 0.
         

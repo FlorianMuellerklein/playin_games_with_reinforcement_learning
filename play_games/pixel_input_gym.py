@@ -1,4 +1,4 @@
-import cv2
+import sys
 import gym
 import time
 import random 
@@ -12,32 +12,37 @@ from torch.autograd import Variable
 from torch.distributions import Categorical
 
 from common.multiproc_env import SubprocVecEnv
+sys.path.append('../')
 from models.convnet import ConvPolicy
 
 global args
 import argparse
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
-parser.add_argument('--num_episode', type=int, default=1000000,
+parser.add_argument('--num_episode', type=int, default=5000000,
                     help='number of total game episodes')
-parser.add_argument('--num_steps', type=int, default=16,
+parser.add_argument('--num_steps', type=int, default=8,
                     help='number of steps before reflecting on your life')
 parser.add_argument('--ppo_epochs', type=int, default=4,
                     help='number of epochs for ppo updates')
-parser.add_argument('--lr', type=float, default=1e-4,
+parser.add_argument('--lr', type=float, default=3e-4,
                     help='learning rate for adam')
-parser.add_argument('--rnn_size', type=int, default=256,
+parser.add_argument('--lr_decay', action='store_true',
+                    help='whether to decay learning rate linearly')
+parser.add_argument('--hid_size', type=int, default=256,
                     help='number of units in the rnn')
 parser.add_argument('--gamma', type=float, default=0.95,
                     help='discount factor (default: 0.99)')
+parser.add_argument('--entropy', type=float, default=0.01,
+                    help='coefficient for entropy')
 parser.add_argument('--clip', type=float, default=0.2,
                     help='clip epsilon (default: 0.2)')
-parser.add_argument('--num_envs', type=int, default=1,
+parser.add_argument('--num_envs', type=int, default=8,
                     help='number of parallel games')
 parser.add_argument('--seed', type=int, default=543,
                     help='random seed (default: 543)')
-parser.add_argument('--log-interval', type=int, default=10,
+parser.add_argument('--log-interval', type=int, default=10000,
                     help='interval between training status logs (default: 10)')
-parser.add_argument('--env_name', type=str, default='MsPacman-v0',
+parser.add_argument('--env_name', type=str, default='Assault-v0',
                     help='Which game to play')
 parser.add_argument('--algo', type=str, default='a2c',
                     help='which rl algo to use for weight updates')
@@ -46,6 +51,8 @@ parser.add_argument('--render', action='store_true',
 parser.add_argument('--gpu', action='store_true',
                     help='whether to use gpu')
 args = parser.parse_args()
+
+lr_min = args.lr * 0.001
 
 
 device = torch.device('cuda:0' if torch.cuda.is_available() and args.gpu else 'cpu')
@@ -65,26 +72,54 @@ else:
     env = [make_env() for i in range(args.num_envs)]
     env = SubprocVecEnv(env)
 
+tenv = gym.make(args.env_name)
+
+def test():
+    s = tenv.reset()
+    if args.render: tenv.render()
+    d = False
+    r_total = 0.
+    while not d:
+        s = s[::2, ::2]
+        s = s.transpose((2,0,1)) / 255.
+        s = torch.from_numpy(s).unsqueeze(0).float()
+        p_, _ = update_algo.policy(s.to(device))
+        a = p_.sample()
+        s_, r, d, _ = tenv.step(a.cpu().numpy()[0])
+        r_total += r
+        s = s_
+        if args.render: tenv.render()
+    return r_total
+
 n_states = env.observation_space.shape
 n_actions = env.action_space.n
 print('state shape:', n_states, 'actions:', n_actions)
 
 
+policy = ConvPolicy(n_actions).to(device)
+optimizer = optim.Adam(policy.parameters(), lr=args.lr)
+
 if args.algo == 'ppo':
-    from evaluations.ppo import PPO
-    update_algo = PPO(policy = ConvPolicy(n_actions).to(device), 
-                      optimizer=optim.Adam, 
+    from algorithms.ppo import PPO
+    update_algo = PPO(policy=policy,
+                      optimizer=optimizer, 
+                      num_steps=args.num_steps,
+                      num_envs=args.num_envs,
+                      state_size=(3, 125, 80),
+                      entropy_coef=args.entropy,
                       gamma=args.gamma, 
                       device=device,
-                      lr=args.lr,
                       epochs=args.ppo_epochs)
 else:
-    from evaluations.a2c import A2C
-    update_algo = A2C(policy = ConvPolicy(n_actions).to(device), 
-                      optimizer=optim.Adam, 
+    from algorithms.a2c import A2C
+    update_algo = A2C(policy=policy, 
+                      optimizer=optimizer, 
+                      num_steps=args.num_steps,
+                      num_envs=args.num_envs,
+                      state_size=(3, 125, 80),
+                      entropy_coef=args.entropy,
                       gamma=args.gamma, 
-                      device=device,
-                      lr=args.lr)
+                      device=device,)
 
 
 def state_proc(state):
@@ -103,60 +138,50 @@ end_rewards = []
 def main():
     try:
         print('starting episodes') 
-        ep_idx = 0
+        idx = 0
         restart = True
-        while ep_idx < args.num_episode:
-            
-            states, actions, values, rewards, dones = [], [], [], [], []
-
-            if restart:
-                reward_sum = 0.
-                s = env.reset()
-                h = torch.zeros(args.num_envs, args.rnn_size).to(device)
-            else:
-                h = h.detach()
-
+        s = env.reset()
+        while idx < args.num_episode:
+            reward_sum = 0.
             # play a game
-            for t in range(args.num_steps):  # Don't infinite loop while learning
+            for t in range(args.num_steps):
                 s = state_proc(s)
 
-                with torch.no_grad():
-                    p_, v_ = update_algo.policy(s.to(device))
-                    a = p_.sample()
+                p_, v_ = update_algo.policy(s.to(device))
+                a = p_.sample()
+                lp_ = p_.log_prob(a)
+                e = p_.entropy()
 
-                s_, r, d, _ = env.step(a.item() if args.num_envs == 1 else a.cpu().numpy())
+                s_, r, d, _ = env.step(a.cpu().numpy() if args.num_envs > 1 else a.item())
 
                 reward_sum += r.mean() if args.num_envs > 1 else r
-                restart = d if args.num_envs == 1 else d.any()
 
-                states.append(s)
-                actions.append(a)
-                values.append(v_)
-                rewards.append(r)
-                dones.append(d)
-
-                if args.render:
-                    if args.num_envs == 1:
-                        env.render()
-                    else:
-                        cv2.imshow('game', s[0].numpy().transpose(1,2,0))
-                        cv2.waitKey(1)
+                update_algo.rollouts.insert(t, lp_, e, v_, r, d, 
+                                            a if args.algo == 'ppo' else None,
+                                            s if args.algo == 'ppo' else None)
 
                 if (d if args.num_envs == 1 else d.any()):
-                    restart = True
-                    ep_idx += 1
-                    state = env.reset()
-                    end_rewards.append(reward_sum)
-
-                    if ep_idx % args.log_interval == 0:
-                        print('Episode {}\t Last Sum Reward: {:.5f}'.format(
-                            ep_idx, reward_sum))
-                    break
+                    s = env.reset()
                 else:
                     s = s_
+                    idx += 1
 
-            if len(dones) > 1:
-                update_algo.update(states, actions, values, rewards, dones)
+                if idx % args.log_interval == 0:
+                    test_rewards = np.mean([test() for _ in range(10)])
+                    end_rewards.append(test_rewards)
+                    print('Frames {}\t Test Reward: {:.5f}'.format(
+                        idx, test_rewards))
+
+            s_ = state_proc(s_)
+            with torch.no_grad():
+                _, next_val = update_algo.policy(s_.to(device))
+
+            update_algo.update(next_val)
+
+            if args.lr_decay:
+                for params in update_algo.optimizer.param_groups:
+                    params['lr'] = (0.0 + 0.5 * (args.lr - 0.0) *
+                                   (1 + np.cos(np.pi * idx / args.num_steps)))
 
     except KeyboardInterrupt:
         pass
@@ -170,18 +195,14 @@ def main():
     out_dict = {'avg_end_rewards': end_rewards}
     out_log = pd.DataFrame(out_dict)
     out_log.to_csv('../logs/{}_{}_rewards.csv'.format(args.env_name,
-                                                      args.algo), 
-                   index=False)
+                                                      args.algo), index=False)
 
     out_dict = {'actor losses': update_algo.actor_losses,
                 'critic losses': update_algo.critic_losses,
                 'entropy': update_algo.entropy}
     out_log = pd.DataFrame(out_dict)
     out_log.to_csv('../logs/{}_{}_training_behavior.csv'.format(args.env_name,
-                                                                args.algo), 
-                   index=False)
-
-    cv2.destroyAllWindows()
+                                                                args.algo), index=False)
 
 if __name__ == '__main__':
     main()
