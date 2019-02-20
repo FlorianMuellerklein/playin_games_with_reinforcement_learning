@@ -18,18 +18,3 @@ class GRUPolicy(nn.Module):
         value = self.value(h)
 
         return action_dist, value, h
-
-    def sample_action_probs(self, x, h):
-        h = self.gru(x, h)
-
-        action_scores = self.action(h)
-        action_dist = F.softmax(action_scores, dim=-1)
-
-        return action_dist, h
-
-    def sample_value(self, x, h):
-        h = self.gru(x, h)
-
-        value = self.value(h)
-
-        return value, h

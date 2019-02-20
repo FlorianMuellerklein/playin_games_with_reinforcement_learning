@@ -11,7 +11,6 @@ from torch.autograd import Variable
 from torch.distributions import Categorical
 
 from common.multiproc_env import SubprocVecEnv
-sys.path.append('../')
 from models.mlp import MLPolicy
 
 global args
