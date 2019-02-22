@@ -11,38 +11,65 @@ The RL algorithms are designed to be modular, and agnostic to the training envir
 For example using A2C on an openai gym environment
 
 ```python
-from algorithms.a2c import A2C
+import gym
+import numpy as np
 
-policy = ConvPolicy(n_actions)
+import torch
+import torch.optim as optim
+from models.mlp import MLPolicy
+from algorithms import A2C
+
+env = gym.make('CartPole-v1')
+n_states = env.observation_space.shape
+n_actions = env.action_space.n
+
+# mlp with 32 hidden units
+policy = MLPolicy(n_states[0], n_actions, 32)
 optimizer = optim.Adam(policy.parameters(), lr=0.0003)
 
 update_algo = A2C(policy=policy, 
-                  optimizer=optimizer)
+                  optimizer=optimizer,
+                  num_envs=1,
+                  state_size=n_states,
+                  device=torch.device('cpu'))
 
 idx = 0
+ep_reward = 0
+state = env.reset()
 while idx < 10: # play for 10 episodes
-    for t in range(8): # update every 8 time steps
-        state = torch.from_numpy(state)
+    for t in range(5): # update every 8 time steps
+        state = torch.from_numpy(state).unsqueeze(0).float()
 
-        dist, value = update_algo.policy(s.to(device))
+        dist, value = update_algo.policy(state)
         action = dist.sample()
         logprob = dist.log_prob(action)
         entropy = dist.entropy()
 
         new_state, reward, done, _ = env.step(action.item())
+        ep_reward += reward
+        reward = np.asarray([reward])
 
-        update_algo.rollouts.insert(logprob, entropy, value, reward, done)
+        env.render()
+
+        update_algo.insert(t, s=state, a=action, 
+                              v=value, lp=logprob, 
+                              r=reward, d=done)
 
         state = new_state
 
         if done:
+            print('{}: {}'.format(idx, ep_reward))
+            ep_reward = 0
+            env.reset()
             idx += 1
     
     next_val = torch.zeros(1,1)
-    if not d:
+    if not done:
+        new_state = torch.from_numpy(new_state).unsqueeze(0).float()
         with torch.no_grad():
-            _, next_val = update_algo.policy(s.to(device))
-    update_algo.update(next_val))
+            _, next_val = update_algo.policy(new_state)
+
+    update_algo.update(next_val)
 ```
 
 ## Installation
