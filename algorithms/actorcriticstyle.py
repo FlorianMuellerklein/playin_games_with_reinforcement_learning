@@ -17,7 +17,7 @@ class ActorCriticStyle:
         self.lmbda = lmbda
         self.gamma = gamma
         self.device = device
-        self.value_coef = 0.5
+        self.value_coef = 0.25
         self.entropy_coef = entropy_coef
 
         # rollouts shape info
@@ -43,30 +43,46 @@ class ActorCriticStyle:
         self.actor_losses = []
         self.critic_losses = []
         self.entropy_logs = []
+        self.grad_norms = []
 
     # discount function
-    def discount_rewards(self, _val):
+    def gae(self, _val, _msk):
         returns = torch.zeros(self.rewards.size())
 
-        _msk = torch.zeros((self.num_envs), device=self.device)
         gae = 0.
         for i in reversed(range(self.num_steps)):
             _val = self.values[i+1] if i < self.num_steps - 1 else _val
             _msk = self.masks[i+1] if i < self.num_steps -1 else _msk
 
             delta = self.rewards[i] + _val * self.gamma * _msk - self.values[i]
-            gae = delta + self.gamma * self.lmbda * gae
+            gae = delta + self.gamma * self.lmbda * gae * _msk
             returns[i] = gae + self.values[i]
 
         return returns.transpose(0,1).reshape(-1).to(self.device)
 
-    def insert(self, step, lp, s, a, v, r, d):
-        self.actions[step] = a.int()
+    def discount_rewards(self, _val, _msk):
+        returns = torch.zeros(self.rewards.size())
+
+        for i in reversed(range(self.num_steps)):
+            _msk = self.masks[i+1] if i < self.num_steps - 1 else _msk
+            _val = self.rewards[i] + self.gamma * _val * _msk
+            returns[i] = _val
+
+        returns = (returns - returns.mean()) / returns.std() + 1e-5
+
+        return returns.transpose(0,1).reshape(-1).to(self.device)
+
+    def insert_state(self, step, s, d, h=None):
         self.states[step] = s.float()
+        self.masks[step] = torch.tensor(1. - d).float()
+        if h is not None:
+            self.memory[step] = h.float()
+
+    def insert_response(self, step, a, v, lp, r):
+        self.actions[step] = a.int()
         self.values[step] = v.float()
         self.log_probs[step] = lp.float()
         self.rewards[step] = torch.from_numpy(r).float()
-        self.masks[step] = torch.tensor(1. - d).float()
 
     def reset(self):
         self.states = torch.zeros((self.num_steps, self.num_envs, 

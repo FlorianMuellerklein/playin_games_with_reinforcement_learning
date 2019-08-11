@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Categorical
 
 class GRUPolicy(nn.Module):
-    def __init__(self, input_dims, n_actions, , rnn_size):
+    def __init__(self, input_dims, n_actions, rnn_size, num_steps, num_envs):
         super(GRUPolicy, self).__init__()
         self.gru = nn.GRUCell(input_dims, rnn_size)
         self.action = nn.Linear(rnn_size, n_actions)
@@ -17,4 +18,4 @@ class GRUPolicy(nn.Module):
        
         value = self.value(h)
 
-        return action_dist, value, h
+        return Categorical(action_dist), value.squeeze(), h

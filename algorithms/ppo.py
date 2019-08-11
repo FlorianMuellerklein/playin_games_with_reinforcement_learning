@@ -24,19 +24,20 @@ class PPO(ActorCriticStyle):
         self.ppo_batch_size = batch_size
         self.ppo_clip = clip
 
-    def update(self, next_val):
+    def update(self, next_val, next_mask):
         # concate lists
-        old_log_probs = self.log_probs.transpose(0,1).reshape(-1).detach()
-        actions = self.actions.transpose(0,1).reshape(-1).detach()
+        old_log_probs = self.log_probs.transpose(0,1).reshape(-1)
+        actions = self.actions.transpose(0,1).reshape(-1)
         states = self.states.transpose(0,1).reshape(-1, *self.state_size)
         if self.recurrent:
-            memory = self.memory.transpose(0,1).reshape(-1, self.rnn_size).detach()
+            masks = self.masks.transpose(0,1).reshape(-1,1)
+            memory = self.memory.transpose(0,1).reshape(-1, self.rnn_size)
 
         # get discounted rewards
-        returns = self.discount_rewards(next_val)
+        returns = self.discount_rewards(next_val, next_mask)
 
         for e in range(self.ppo_epochs):
-            for strt in range(0, self.num_steps*self.num_envs, self.ppo_batch_size):
+            for strt in range(0, states.size(0), self.ppo_batch_size):
                 end = strt + self.ppo_batch_size
 
                 if not self.recurrent:
@@ -46,21 +47,21 @@ class PPO(ActorCriticStyle):
                 else:
                     # get new probs, value preds and log probs
                     action_probs, value_preds, h = self.policy(states[strt:end], 
-                                                               memory[strt:end])
+                                                               memory[strt:end] * masks[strt:end])
                     action_log_probs = action_probs.log_prob(actions[strt:end])
                 
                 # get advantage
                 advantage = (returns[strt:end] - value_preds)
 
                 # do the policy loss
-                ratio = torch.exp(action_log_probs - old_log_probs[strt:end].detach())
+                ratio = torch.exp(action_log_probs - old_log_probs[strt:end])
                 # get regular policy grad and clipped ratio
-                surr1 = ratio * advantage.detach()
+                surr1 = ratio * advantage
                 surr2 = torch.clamp(ratio, 1. - self.ppo_clip, 
-                                           1. + self.ppo_clip) * advantage.detach()
+                                           1. + self.ppo_clip) * advantage
                 actor_loss = - torch.min(surr1, surr2).mean()
                 # do the value loss
-                value_loss = F.mse_loss(value_preds, returns[strt:end].detach())
+                value_loss = F.mse_loss(value_preds, returns[strt:end])
 
                 # combine into total loss
                 total_loss = (actor_loss + self.value_coef * value_loss - 
@@ -72,7 +73,7 @@ class PPO(ActorCriticStyle):
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
-                nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
+                nn.utils.clip_grad_norm_(self.policy.parameters(), 40.)
                 self.optimizer.step()
 
                 if self.recurrent:

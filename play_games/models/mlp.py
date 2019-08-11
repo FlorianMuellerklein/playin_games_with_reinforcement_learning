@@ -4,11 +4,11 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 
 class MLPolicy(nn.Module):
-    def __init__(self, input_dims, n_actions, hidden_sz):
+    def __init__(self, input_dims, n_actions, n_hidden):
         super(MLPolicy, self).__init__()
-        self.fc = nn.Linear(input_dims, hidden_sz)
-        self.action = nn.Linear(hidden_sz, n_actions)
-        self.value = nn.Linear(hidden_sz, 1)
+        self.fc = nn.Linear(input_dims, n_hidden)
+        self.action = nn.Linear(n_hidden, n_actions)
+        self.value = nn.Linear(n_hidden, 1)
 
     def forward(self, x):
         x = F.relu(self.fc(x))
