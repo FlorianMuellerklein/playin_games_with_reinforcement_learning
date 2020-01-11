@@ -1,3 +1,4 @@
+import sys
 import time
 import argparse
 
@@ -10,59 +11,49 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 
-from models.mlp import MLPolicy
+from models.convnet import ConvPolicy 
+from helpers import StateProc, MultiGym
 
 device = torch.device('cpu')
 
 algo = 'a2c'
-env_name = "LunarLander-v2"
+env_name = "BreakoutNoFrameskip-v4"
 env = gym.make(env_name)
 n_states = env.observation_space.shape
 n_actions = env.action_space.n
 print('states:', n_states, 'actions:', n_actions)
 
+state_proc = StateProc(num_envs=1, frame_shape=(105,80))
 
-policy = MLPolicy(n_states[0], n_actions, hidden_sz=256).to(device)
-policy.load_state_dict(torch.load('../model_weights/{}_{}_mlp.pth'.format(env_name,
-                                                                          algo),
+policy = ConvPolicy(n_actions).to(device)
+policy.eval()
+policy.load_state_dict(torch.load('../model_weights/{}_{}_conv.pth'.format(env_name, algo),
                                   map_location=lambda storage,
                                   loc: storage))
+policy.eval()
 
 
-def state_proc(state):
-    #state = state[::2, ::2]
-    state = state.transpose((2,0,1))
-    state = state.astype(np.float32) / 255.
-    state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-    return state
-
-policy_losses = []
 def main():
-    running_reward = 10
     try:
         for _ in range(5):
             h = torch.zeros(1, 64)
-            state = env.reset()
+            frame = env.reset()
+            mask = torch.ones(1)
             done = False
             while not done:
+                # stack the frames
+                state = state_proc.proc_state(frame, mask=mask)
             
-                #h = torch.zeros(1, 64).to(device)
-                #for t in range(10000):  # Don't infinite loop while learning
-                #h.detach()
-                #state = state_proc(state)
-                
                 with torch.no_grad():
-                    probs, _ = policy(torch.from_numpy(state).float().unsqueeze(0))
-                action = probs.sample()
-                state, _, done, _ = env.step(action.item())
+                    probs, _ = policy(state)
+                action = probs.argmax(dim=-1)
+                frame, _, done, _ = env.step(action.item())
+                mask = torch.tensor(1. - done).float()
                 
                 env.render()
-                time.sleep(0.02)
+                time.sleep(0.001)
 
                 
-                #if done:
-                #    break
-
     except KeyboardInterrupt:
         pass
 

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Categorical
+
 
 class MLPolicy(nn.Module):
     def __init__(self, input_dims, n_actions, n_hidden):
@@ -18,7 +18,7 @@ class MLPolicy(nn.Module):
        
         value = self.value(x)
 
-        return Categorical(action_dist), value.squeeze()
+        return action_dist, value.squeeze()
 
     def get_action(self, x):
         with torch.no_grad():
@@ -27,4 +27,4 @@ class MLPolicy(nn.Module):
             action_scores = self.action(x)
             action_dist = F.softmax(action_scores, dim=-1)
 
-        return Categorical(action_dist)
+        return action_dist

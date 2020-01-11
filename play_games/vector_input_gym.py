@@ -16,7 +16,7 @@ from models.gru import GRUPolicy
 global args
 import argparse
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
-parser.add_argument('--num_episode', type=int, default=5000000,
+parser.add_argument('--num_episode', type=int, default=100000,
                     help='number of total game episodes')
 parser.add_argument('--num_steps', type=int, default=5,
                     help='number of steps before reflecting on your life')
@@ -30,7 +30,7 @@ parser.add_argument('--lr_decay', action='store_true',
                     help='whether to decay learning rate linearly')
 parser.add_argument('--hid_size', type=int, default=256,
                     help='number of units in the rnn')
-parser.add_argument('--gamma', type=float, default=0.95,
+parser.add_argument('--gamma', type=float, default=0.99,
                     help='discount factor (default: 0.99)')
 parser.add_argument('--entropy', type=float, default=0.01,
                     help='coefficient for entropy')
@@ -42,7 +42,7 @@ parser.add_argument('--seed', type=int, default=543,
                     help='random seed (default: 543)')
 parser.add_argument('--log-interval', type=int, default=10000,
                     help='interval between training status logs (default: 10)')
-parser.add_argument('--env_name', type=str, default='CartPole-v1',
+parser.add_argument('--env_name', type=str, default='LunarLander-v2',
                     help='Which game to play')
 parser.add_argument('--algo', type=str, default='a2c',
                     help='which rl algo to use for weight updates')
@@ -96,7 +96,7 @@ print('states:', n_states, 'actions:', n_actions)
 
 policy = GRUPolicy(n_states[0], n_actions, args.hid_size,
                    args.num_steps, args.num_envs).to(device)
-optimizer = optim.Adam(policy.parameters(), lr=args.lr, eps=1e-5)
+optimizer = optim.RMSprop(policy.parameters(), lr=args.lr, eps=1e-5)
 
 if args.algo == 'ppo':
     sys.path.append('../')
@@ -132,56 +132,59 @@ gt = 0
 
 def main():
     try:
-        print('starting episodes') 
+        print('starting episodes')
+        d = False
         idx = 0
         episodes = 0
         restart = True
         s = env.reset()
         h = torch.zeros((args.num_envs, args.hid_size)).to(device)
-        while idx < args.num_episode:
+        s = torch.from_numpy(s).float() if args.num_envs > 1 else torch.from_numpy(s).float().unsqueeze(0)
+        while episodes < args.num_episode:
             reward_sum = 0.
             # play a game
             for t in range(args.num_steps):
-                s = torch.from_numpy(s).float() if args.num_envs > 1 else torch.from_numpy(s).float().unsqueeze(0)
-
                 with torch.no_grad():
-                    update_algo.memory[t] = h
-                    p_, v_, h = update_algo.policy(s.to(device), h)
+                    # insert state before getting actions
+                    update_algo.insert_state(step=t, s=s, h=h, d=d)
 
-                a = p_.sample()
-                lp_ = p_.log_prob(a)
-                e = p_.entropy()
+                    p, v, h = update_algo.policy(s.to(device), h)
+                    a = p.sample()
+                    lp = p.log_prob(a)
+                    e = p.entropy()
 
-                s_, r, d, _ = env.step(a.cpu().numpy() if args.num_envs > 1 else a.item())
+                    s, r, d, _ = env.step(a.cpu().numpy() if args.num_envs > 1 else a.item())
 
-                reward_sum += r.mean() if args.num_envs > 1 else r
+                    reward_sum += r.mean() if args.num_envs > 1 else np.asarray([r])
+                    update_algo.insert_response(step=t, 
+                                                a=a, 
+                                                v=v, 
+                                                lp=lp, 
+                                                r=np.asarray([r]))
 
-                update_algo.insert(t, s=s, a=a, v=v_, lp=lp_, r=r, d=d)
+                    if (d if args.num_envs == 1 else d.any()):
+                        episodes += 1
+                        s = env.reset()
+                        h = torch.zeros((args.num_envs, args.hid_size)).to(device)
+                    else:
+                        idx += 1
 
-                if (d if args.num_envs == 1 else d.any()):
-                    episodes += 1
-                    s = env.reset()
-                    h = torch.zeros((args.num_envs, args.hid_size)).to(device)
-                else:
-                    s = s_
-                    idx += 1
+                    if idx % args.log_interval == 0:
+                        test_rewards = np.mean([test() for _ in range(10)])
+                        end_rewards.append(test_rewards)
+                        print('Frames {}\t Test Reward: {:.5f} \t Episodes {}'.format(
+                            idx, test_rewards, episodes))
 
-                if idx % args.log_interval == 0:
-                    test_rewards = np.mean([test() for _ in range(10)])
-                    end_rewards.append(test_rewards)
-                    print('Frames {}\t Test Reward: {:.5f} \t Episodes {}'.format(
-                        idx, test_rewards, episodes))
+                    s = torch.from_numpy(s).float() if args.num_envs > 1 else torch.from_numpy(s).float().unsqueeze(0)
+                    _, next_val, _ = update_algo.policy(s.to(device), h)
 
-            s_ = torch.from_numpy(s_).float() if args.num_envs > 1 else torch.from_numpy(s_).float().unsqueeze(0)
-            with torch.no_grad():
-                _, next_val, _ = update_algo.policy(s_.to(device), h)
-
-            update_algo.update(next_val.unsqueeze(0))
+            update_algo.update(next_val.unsqueeze(0), 
+                               torch.tensor(1.-d, device=device).float())
 
             if args.lr_decay:
                 for params in update_algo.optimizer.param_groups:
-                    params['lr'] = (0.0 + 0.5 * (args.lr - 0.0) *
-                                   (1 + np.cos(np.pi * idx / args.num_steps)))
+                    params['lr'] = (lr_min + 0.5 * (args.lr - lr_min) *
+                                   (1 + np.cos(np.pi * idx / args.num_episode)))
 
     except KeyboardInterrupt:
         pass

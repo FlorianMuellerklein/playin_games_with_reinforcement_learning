@@ -11,25 +11,28 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.distributions import Categorical
 
-from common.multiproc_env import SubprocVecEnv
-from models.convnet import ConvPolicy
+from models.convnet import ConvPolicy 
+from helpers import StateProc, MultiGym
+
+#from stable_baselines.common.vec_env import DummyVecEnv, SubprocVecEnv
+#from stable_baselines.common import set_global_seeds
+
+import matplotlib.pyplot as plt
 
 global args
 import argparse
 parser = argparse.ArgumentParser(description='PyTorch gym with pixel inputs')
-parser.add_argument('--num_episode', type=int, default=5000000,
+parser.add_argument('--num_updates', type=int, default=250000,
                     help='number of total game episodes')
-parser.add_argument('--num_steps', type=int, default=8,
+parser.add_argument('--num_steps', type=int, default=5,
                     help='number of steps before reflecting on your life')
 parser.add_argument('--ppo_epochs', type=int, default=4,
                     help='number of epochs for ppo updates')
-parser.add_argument('--lr', type=float, default=3e-4,
+parser.add_argument('--lr', type=float, default=7e-4,
                     help='learning rate for adam')
 parser.add_argument('--lr_decay', action='store_true',
                     help='whether to decay learning rate linearly')
-parser.add_argument('--hid_size', type=int, default=256,
-                    help='number of units in the rnn')
-parser.add_argument('--gamma', type=float, default=0.95,
+parser.add_argument('--gamma', type=float, default=0.99,
                     help='discount factor (default: 0.99)')
 parser.add_argument('--entropy', type=float, default=0.01,
                     help='coefficient for entropy')
@@ -39,9 +42,9 @@ parser.add_argument('--num_envs', type=int, default=8,
                     help='number of parallel games')
 parser.add_argument('--seed', type=int, default=543,
                     help='random seed (default: 543)')
-parser.add_argument('--log-interval', type=int, default=10000,
+parser.add_argument('--log-interval', type=int, default=10,
                     help='interval between training status logs (default: 10)')
-parser.add_argument('--env_name', type=str, default='Assault-v0',
+parser.add_argument('--env_name', type=str, default='BreakoutNoFrameskip-v4',
                     help='Which game to play')
 parser.add_argument('--algo', type=str, default='a2c',
                     help='which rl algo to use for weight updates')
@@ -53,134 +56,149 @@ args = parser.parse_args()
 
 lr_min = args.lr * 0.001
 
+device = torch.device('cuda:1' if torch.cuda.is_available() and args.gpu else 'cpu')
 
-device = torch.device('cuda:0' if torch.cuda.is_available() and args.gpu else 'cpu')
+train_state_proc = StateProc(num_envs=args.num_envs, frame_shape=(105,80))
+test_state_proc = StateProc(num_envs=1, frame_shape=(105,80))
 
+def make_env(env_id, rank, seed=0):
+    """
+    Utility function for multiprocessed env.
+    
+    :param env_id: (str) the environment ID
+    :param num_env: (int) the number of environment you wish to have in subprocesses
+    :param seed: (int) the inital seed for RNG
+    :param rank: (int) index of the subprocess
+    """
+    def _init():
+        env = gym.make(env_id)
+        env.seed(seed + rank)
+        return env
+    set_global_seeds(seed)
+    return _init
 
-if args.num_envs == 1:
-     env = gym.make(args.env_name)
-     env.seed(543)
-else:
-    def make_env():
-        def _thunk():
-            env = gym.make(args.env_name)
-            return env
+def viz_state(state):
+    fix, ax = plt.subplots(4)
+    for idx in range(state.shape[1]):
+        ax[idx].imshow(state[0, idx,:,:].squeeze())
+    plt.show()
 
-        return _thunk
-
-    env = [make_env() for i in range(args.num_envs)]
-    env = SubprocVecEnv(env)
-
-tenv = gym.make(args.env_name)
-
-def test():
-    s = tenv.reset()
-    if args.render: tenv.render()
-    d = False
-    r_total = 0.
-    while not d:
-        s = s[::2, ::2]
-        s = s.transpose((2,0,1)) / 255.
-        s = torch.from_numpy(s).unsqueeze(0).float()
-        p_, _ = update_algo.policy(s.to(device))
-        a = p_.sample()
-        s_, r, d, _ = tenv.step(a.cpu().numpy()[0])
-        r_total += r
-        s = s_
-        if args.render: tenv.render()
-    return r_total
-
-n_states = env.observation_space.shape
-n_actions = env.action_space.n
-print('state shape:', n_states, 'actions:', n_actions)
-
-
-policy = ConvPolicy(n_actions).to(device)
-optimizer = optim.Adam(policy.parameters(), lr=args.lr)
-
-if args.algo == 'ppo':
-    from algorithms.ppo import PPO
-    update_algo = PPO(policy=policy,
-                      optimizer=optimizer, 
-                      num_steps=args.num_steps,
-                      num_envs=args.num_envs,
-                      state_size=(3, 125, 80),
-                      entropy_coef=args.entropy,
-                      gamma=args.gamma, 
-                      device=device,
-                      epochs=args.ppo_epochs)
-else:
-    from algorithms.a2c import A2C
-    update_algo = A2C(policy=policy, 
-                      optimizer=optimizer, 
-                      num_steps=args.num_steps,
-                      num_envs=args.num_envs,
-                      state_size=(3, 125, 80),
-                      entropy_coef=args.entropy,
-                      gamma=args.gamma, 
-                      device=device,)
-
-
-def state_proc(state):
-    if args.num_envs == 1:
-        state = state[::2, ::2]
-        state = state.transpose((2,0,1)) / 255.
-        state = torch.from_numpy(state).unsqueeze(0).float()
-    else:
-        state = state[:, ::2, ::2, :]
-        state = state.transpose((0,3,1,2)) / 255.
-        state = torch.from_numpy(state).float()
-    return state
-
-
-end_rewards = []
 def main():
+
+    # make the environments
+    if args.num_envs == 1:
+        env = [gym.make(args.env_name)]
+    else:
+        env = [gym.make(args.env_name) for i in range(args.num_envs)]
+
+    env = MultiGym(env, render=args.render)
+
+    n_states = env.observation_space.shape
+    n_actions = env.action_space.n
+    print('state shape:', n_states, 'actions:', n_actions)
+
+    policy = ConvPolicy(n_actions).to(device)
+    optimizer = optim.RMSprop(policy.parameters(), lr=args.lr)
+
+    if args.algo == 'ppo':
+        sys.path.append('../')
+        from algorithms.ppo import PPO
+        update_algo = PPO(policy=policy,
+                        optimizer=optimizer, 
+                        num_steps=args.num_steps,
+                        num_envs=args.num_envs,
+                        state_size=(4, 105, 80),
+                        entropy_coef=args.entropy,
+                        gamma=args.gamma, 
+                        device=device,
+                        epochs=args.ppo_epochs)
+    else:
+        sys.path.append('../')
+        from algorithms.a2c import A2C
+        update_algo = A2C(policy=policy, 
+                        optimizer=optimizer, 
+                        num_steps=args.num_steps,
+                        num_envs=args.num_envs,
+                        state_size=(4, 105, 80),
+                        entropy_coef=args.entropy,
+                        gamma=args.gamma, 
+                        device=device)
+
+            
+    end_rewards = []
+
     try:
         print('starting episodes') 
         idx = 0
+        d = False
+        reward_sum = np.zeros((args.num_envs))
         restart = True
-        s = env.reset()
-        while idx < args.num_episode:
-            reward_sum = 0.
-            # play a game
-            for t in range(args.num_steps):
-                s = state_proc(s)
+        frame = env.reset()
+        mask = torch.ones(args.num_envs)
+        all_start = time.time()
 
-                p_, v_ = update_algo.policy(s.to(device))
-                a = p_.sample()
-                lp_ = p_.log_prob(a)
-                e = p_.entropy()
+        for update_idx in range(args.num_updates):
+            update_algo.policy.train()
 
-                s_, r, d, _ = env.step(a.cpu().numpy() if args.num_envs > 1 else a.item())
+            # stack the frames
+            s = train_state_proc.proc_state(frame, mask=mask)
 
-                reward_sum += r.mean() if args.num_envs > 1 else r
+            # insert state before getting actions
+            update_algo.states[0].copy_(s)
 
-                update_algo.rollouts.insert(t, lp_, e, v_, r, d, 
-                                            a if args.algo == 'ppo' else None,
-                                            s if args.algo == 'ppo' else None)
+            start = time.time()
+            for step in range(args.num_steps):
 
-                if (d if args.num_envs == 1 else d.any()):
-                    s = env.reset()
-                else:
-                    s = s_
-                    idx += 1
+                with torch.no_grad():
+                    # get probability dist and values
+                    p, v = update_algo.policy(update_algo.states[step])
+                    a = Categorical(p).sample()
 
-                if idx % args.log_interval == 0:
-                    test_rewards = np.mean([test() for _ in range(10)])
-                    end_rewards.append(test_rewards)
-                    print('Frames {}\t Test Reward: {:.5f}'.format(
-                        idx, test_rewards))
+                # take action get response
+                frame, r, d = env.step(a.cpu().numpy() if args.num_envs > 1 else [a.item()])
+                s = train_state_proc.proc_state(frame, mask)
 
-            s_ = state_proc(s_)
+                update_algo.insert_experience(step=step,
+                                              s=s,
+                                              a=a,
+                                              v=v,
+                                              r=r,
+                                              d=d)
+
+
+                mask = torch.tensor(1. - d).float()
+                reward_sum = (reward_sum + r)
+
+                # if any episode finished append episode reward to list
+                if d.any():
+                    end_rewards.extend(reward_sum[d])
+                
+                # reset any rewards that finished
+                reward_sum = reward_sum * mask.numpy()
+
+                idx += 1
+
             with torch.no_grad():
-                _, next_val = update_algo.policy(s_.to(device))
+                _, next_val = update_algo.policy(update_algo.states[-1])
 
-            update_algo.update(next_val)
+            update_algo.update(next_val.view(1, args.num_envs).to(device), 
+                               next_mask=mask.to(device))
 
             if args.lr_decay:
                 for params in update_algo.optimizer.param_groups:
-                    params['lr'] = (0.0 + 0.5 * (args.lr - 0.0) *
-                                   (1 + np.cos(np.pi * idx / args.num_steps)))
+                    params['lr'] = (lr_min + 0.5 * (args.lr - lr_min) *
+                                    (1 + np.cos(np.pi * idx / args.num_updates)))
+
+            # update every so often by displaying results in term
+            if (update_idx % args.log_interval == 0) and (len(end_rewards) > 0):
+                total_steps = (idx + 1) * args.num_envs * args.num_steps
+                end = time.time()
+                print(end_rewards[-10:])
+                print('Updates {}\t  Time: {:.4f} \t FPS: {}'.format(
+                            update_idx, end-start, int(total_steps / (end - all_start))))
+                print('Mean Episode Rewards: {:.2f} \t Min/Max Current Rewards: {}/{}'.format(
+                       np.mean(end_rewards[-10:]), reward_sum.min(), reward_sum.max()
+                ))
 
     except KeyboardInterrupt:
         pass
@@ -198,10 +216,15 @@ def main():
 
     out_dict = {'actor losses': update_algo.actor_losses,
                 'critic losses': update_algo.critic_losses,
-                'entropy': update_algo.entropy}
+                'entropy': update_algo.entropy_logs}
     out_log = pd.DataFrame(out_dict)
     out_log.to_csv('../logs/{}_{}_training_behavior.csv'.format(args.env_name,
                                                                 args.algo), index=False)
+
+    plt.plot(end_rewards)
+    plt.show()
+
+    #env.close()
 
 if __name__ == '__main__':
     main()

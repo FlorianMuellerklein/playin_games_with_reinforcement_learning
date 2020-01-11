@@ -42,8 +42,11 @@ class PPO(ActorCriticStyle):
 
                 if not self.recurrent:
                     # get new probs, value preds and log probs
-                    action_probs, value_preds = self.policy(states[strt:end])
-                    action_log_probs = action_probs.log_prob(actions[strt:end])
+                    action_probs, value_preds = self.policy(states)
+                    action_probs = action_probs.clamp(min=1e-7, max=1.0)
+
+                    # get log probs
+                    log_probs = torch.log(action_probs.gather(1, actions))
                 else:
                     # get new probs, value preds and log probs
                     action_probs, value_preds, h = self.policy(states[strt:end], 
@@ -73,7 +76,7 @@ class PPO(ActorCriticStyle):
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
-                nn.utils.clip_grad_norm_(self.policy.parameters(), 40.)
+                nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
                 self.optimizer.step()
 
                 if self.recurrent:
